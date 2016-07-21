@@ -1,0 +1,17 @@
+blueprints:
+
+  - stackname: 's3-jenkinsbackup'
+    template: 'buckets.template'
+    Capabilities: 'CAPABILITY_IAM'
+    parameters:
+      BucketName: 'meetup-jenkins-backup'
+      CreateReadUser: 'no'
+      CreateWriteUser: 'no'
+
+  - stackname: 's3-artifacts'
+    template: 'buckets.template'
+    Capabilities: 'CAPABILITY_IAM'
+    parameters:
+      BucketName: 'meetup-artifacts'
+      CreateReadUser: 'no'
+      CreateWriteUser: 'no'

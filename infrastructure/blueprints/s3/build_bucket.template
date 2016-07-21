@@ -1,0 +1,232 @@
+{
+  "AWSTemplateFormatVersion": "2010-09-09",
+  "Description": "S3 Bucket, Policies, and Users",
+
+  "Parameters": {
+
+    "BucketName": {
+      "Description": "Bucket name",
+      "Type": "String"
+    },
+
+    "CreateReadUser": {
+      "Description": "Create Read User",
+      "Type": "String",
+      "AllowedValues": ["yes", "no"],
+      "Default": "no"
+    },
+
+    "CreateWriteUser": {
+      "Description": "Create Write User",
+      "Type": "String",
+      "AllowedValues": ["yes", "no"],
+      "Default": "no"
+    },
+
+    "SecondaryAwsAccountId": {
+      "Description": "Account Id of another AWS account that will have access to this bucket",
+      "Type": "String",
+      "AllowedPattern": "[0-9]{12}",
+      "ConstraintDescription": "12 digits"
+    }
+
+  },
+
+  "Conditions": {
+    "CreateReadUserCondition": {"Fn::Equals": [{"Ref": "CreateReadUser"}, "yes"]},
+    "CreateWriteUserCondition": {"Fn::Equals": [{"Ref": "CreateWriteUser"}, "yes"]}
+  },
+
+  "Resources": {
+
+    "Bucket": {
+      "Type": "AWS::S3::Bucket",
+      "Properties": {
+        "BucketName": {"Ref": "BucketName"},
+        "Tags": [
+          {"Key": "Name", "Value": { "Ref": "BucketName" }},
+          {"Key": "Project", "Value": "ecom"},
+          {"Key": "Account", "Value": "prod"},
+          {"Key": "Environment", "Value": "ALL"}
+        ]
+      }
+    },
+
+    "BucketPolicy": {
+      "Type": "AWS::S3::BucketPolicy",
+      "DependsOn": "Bucket",
+      "Properties": {
+        "Bucket": {"Ref": "BucketName"},
+        "PolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Action": ["s3:Get*", "s3:List*"],
+              "Resource": [
+                "arn:aws:s3:::{Ref:BucketName}/*",
+                "arn:aws:s3:::{Ref:BucketName}"
+              ],
+              "Principal": {"AWS": {"Ref": "AWS::AccountId"}}
+            },
+            {
+              "Effect": "Allow",
+              "Action": ["s3:Get*", "s3:List*"],
+              "Resource": [
+                "arn:aws:s3:::{Ref:BucketName}/*",
+                "arn:aws:s3:::{Ref:BucketName}"
+              ],
+              "Principal": {"AWS": {"Ref": "SecondaryAwsAccountId"}}
+            },
+            {
+              /* Allow write access to Lambda folder only from production account */
+              "Effect": "Allow",
+              "Action": ["s3:Get*", "s3:List*", "s3:Put*"],
+              "Resource": [ "arn:aws:s3:::{Ref:BucketName}/lambda/*" ],
+              "Principal": {"AWS": {"Ref": "SecondaryAwsAccountId"}}
+            }
+          ]
+        }
+      }
+    },
+
+    "ReadPolicy": {
+      "Type": "AWS::IAM::ManagedPolicy",
+      "Properties": {
+        "Description": "Read access to s3://{Ref:BucketName}",
+        "PolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Action": ["s3:Get*", "s3:List*"],
+              "Resource": [
+                "arn:aws:s3:::{Ref:BucketName}/*",
+                "arn:aws:s3:::{Ref:BucketName}"
+              ]
+            }
+          ]
+        }
+      }
+    },
+
+    "WritePolicy": {
+      "Type": "AWS::IAM::ManagedPolicy",
+      "Properties": {
+        "Description": "Read and write access to s3://{Ref:BucketName}",
+        "PolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Action": [
+                "s3:PutObject*",
+                "s3:GetObject*",
+                "s3:DeleteObject*",
+                "s3:List*"
+              ],
+              "Resource": [
+                "arn:aws:s3:::{Ref:BucketName}/*",
+                "arn:aws:s3:::{Ref:BucketName}"
+              ]
+            }
+          ]
+        }
+      }
+    },
+
+    "ReadUser": {
+      "Type": "AWS::IAM::User",
+      "Condition": "CreateReadUserCondition",
+      "Properties": {
+        "ManagedPolicyArns": [{"Ref": "ReadPolicy"}],
+        "Path": "/s3/{Ref:BucketName}/read/"
+      }
+    },
+
+    "ReadUserKeys": {
+      "Type": "AWS::IAM::AccessKey",
+      "Condition": "CreateReadUserCondition",
+      "Properties": {
+        "UserName": {"Ref": "ReadUser"}
+      }
+    },
+
+    "WriteUser": {
+      "Type": "AWS::IAM::User",
+      "Condition": "CreateWriteUserCondition",
+      "Properties": {
+        "ManagedPolicyArns": [{"Ref": "WritePolicy"}],
+        "Path": "/s3/{Ref:BucketName}/write/"
+      }
+    },
+
+    "WriteUserKeys": {
+      "Type": "AWS::IAM::AccessKey",
+      "Condition": "CreateWriteUserCondition",
+      "Properties": {
+        "UserName": {"Ref": "WriteUser"}
+      }
+    }
+
+  },
+
+  "Outputs": {
+
+    "StackName": {
+      "Description": "Stack name",
+      "Value": { "Ref": "AWS::StackName" }
+    },
+
+    "StackId": {
+      "Description": "Stack id",
+      "Value": { "Ref": "AWS::StackId" }
+    },
+
+    "Region": {
+      "Description": "Region",
+      "Value": {"Ref": "AWS::Region"}
+    },
+
+    "BucketName": {
+      "Description": "Bucket name",
+      "Value": {"Ref": "BucketName"}
+    },
+
+    "ReadUserAccessKey": {
+      "Description": "Read User Access Key",
+      "Condition": "CreateReadUserCondition",
+      "Value": {"Ref": "ReadUserKeys"}
+    },
+
+    "ReadUserSecretKey": {
+      "Description": "Read User Secret Key",
+      "Condition": "CreateReadUserCondition",
+      "Value": {"Fn::GetAtt": ["ReadUserKeys", "SecretAccessKey"]}
+    },
+
+    "WriteUserAccessKey": {
+      "Description": "Write User Access Key",
+      "Condition": "CreateWriteUserCondition",
+      "Value": {"Ref": "WriteUserKeys"}
+    },
+
+    "WriteUserSecretKey": {
+      "Description": "Write User Secret Key",
+      "Condition": "CreateWriteUserCondition",
+      "Value": {"Fn::GetAtt": ["WriteUserKeys", "SecretAccessKey"]}
+    },
+
+    "ReadPolicy": {
+      "Description": "Managed read policy",
+      "Value": { "Ref": "ReadPolicy" }
+    },
+
+    "WritePolicy": {
+      "Description": "Managed write policy",
+      "Value": { "Ref": "WritePolicy" }
+    }
+
+  }
+  
+}

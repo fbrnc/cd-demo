@@ -1,0 +1,148 @@
+{
+  "AWSTemplateFormatVersion": "2010-09-09",
+  "Description": "Environment setup",
+
+  "Parameters": {
+    "EnvironmentName": { "Type": "String" },
+
+    /* VPC */
+    "Vpc": { "Type": "AWS::EC2::VPC::Id" },
+    "PrivateSubnets": { "Type": "List<AWS::EC2::Subnet::Id>" },
+    "PublicSubnets": { "Type": "List<AWS::EC2::Subnet::Id>" },
+
+    /* Public DNS */
+    "HostedZoneId": { "Type": "String" },
+    "DomainName": { "Type": "String" },
+
+    /* Internal DNS */
+    "InternalHostedZoneId": { "Type": "String" },
+    "InternalDomainName": { "Type": "String" },
+
+    /* Lambda ARNs */
+    "PasswordGeneratorArn": { "Type": "String" },
+
+    /* Security Groups */
+    "BastionSg": { "Type": "AWS::EC2::SecurityGroup::Id" }
+  },
+
+  "Resources": {
+
+    "ElbSg": {
+      "Type": "AWS::EC2::SecurityGroup",
+      "Properties": {
+        "VpcId": {"Ref": "Vpc"},
+        "GroupDescription": "Public facing ELB",
+        "SecurityGroupIngress": [
+          {"IpProtocol": "tcp", "FromPort": "80", "ToPort": "80", "CidrIp": "0.0.0.0/0" }
+        ]
+      }
+    },
+
+    "AppSg": {
+      "Type": "AWS::EC2::SecurityGroup",
+      "Properties": {
+        "VpcId": {"Ref": "Vpc"},
+        "GroupDescription": "App accepting connections from ELB and Bastion",
+        "SecurityGroupIngress": [
+          {"IpProtocol": "tcp", "FromPort": "80", "ToPort": "80", "SourceSecurityGroupId": {"Ref": "ElbSg"}},
+          {"IpProtocol": "tcp", "FromPort": "22", "ToPort": "22", "SourceSecurityGroupId": {"Ref": "BastionSg"}}
+        ]
+      }
+    },
+
+    "DatabaseSg": {
+      "Type": "AWS::EC2::SecurityGroup",
+      "Properties": {
+        "VpcId": {"Ref": "Vpc"},
+        "GroupDescription": "Database accepting connections from app servers only",
+        "SecurityGroupIngress": [
+          {"IpProtocol": "tcp", "FromPort": "3306", "ToPort": "3306", "SourceSecurityGroupId": {"Ref": "AppSg"}}
+        ]
+      }
+    },
+
+    "Elb": {
+      "Type": "AWS::ElasticLoadBalancing::LoadBalancer",
+      "Properties": {
+        "Listeners": [
+          {"LoadBalancerPort": 80, "Protocol": "HTTP", "InstancePort": 80, "InstanceProtocol": "HTTP"}
+        ],
+        "CrossZone": true,
+        "HealthCheck": {
+          "Target": "HTTP:80/",
+          "HealthyThreshold": "2",
+          "UnhealthyThreshold": "10",
+          "Interval": "5",
+          "Timeout": "4"
+        },
+        "Subnets": {"Ref": "PublicSubnets"},
+        "SecurityGroups": [ {"Ref": "ElbSg"} ],
+        "LoadBalancerName": "app-{Ref:EnvironmentName}"
+      }
+    },
+
+    "ElbDns": {
+      "Type": "AWS::Route53::RecordSet",
+      "Properties": {
+        "HostedZoneName" : "{Ref:DomainName}.",
+        "Name" : "api-{Ref:EnvironmentName}.{Ref:DomainName}.",
+        "TTL": 60,
+        "Type": "CNAME",
+        "ResourceRecords" : [ { "Fn::GetAtt" : [ "Elb", "DNSName" ] } ]
+      }
+    },
+
+    "DbSubnetGroup": {
+      "Type": "AWS::RDS::DBSubnetGroup",
+      "Properties": {
+        "DBSubnetGroupDescription": "Subnet group for RDS",
+        "SubnetIds": {"Ref": "PrivateSubnets"}
+      }
+    },
+
+    "GenerateDbPassword": {
+      "Type": "Custom::PasswordGenerator",
+      "DeletionPolicy": "Retain",
+      "Properties": {
+        "ServiceToken": {"Ref": "PasswordGeneratorArn"}
+      }
+    },
+
+    "Database": {
+      "Type": "AWS::RDS::DBInstance",
+      "Properties": {
+        "MultiAZ": false,
+        "DBInstanceClass": "db.t2.micro",
+        "BackupRetentionPeriod": 0,
+        "AllocatedStorage": "5",
+        "DBInstanceIdentifier": "app-{Ref:EnvironmentName}",
+        "DBSubnetGroupName": {"Ref": "DbSubnetGroup"},
+        "DBName": "app_{Ref:EnvironmentName}",
+        "Engine": "MySQL",
+        "EngineVersion": "5.6",
+        "MasterUsername": "app_{Ref:EnvironmentName}",
+        "MasterUserPassword": {"Fn::GetAtt": ["GenerateDbPassword", "Password"]},
+        "VPCSecurityGroups": [{"Ref": "DatabaseSg"}]
+      }
+    },
+
+    "DatabasebDns": {
+      "Type": "AWS::Route53::RecordSet",
+      "Properties": {
+        "HostedZoneName" : "{Ref:InternalDomainName}.",
+        "Name" : "db-{Ref:EnvironmentName}.{Ref:InternalDomainName}.",
+        "TTL": 5,
+        "Type": "CNAME",
+        "ResourceRecords" : [ { "Fn::GetAtt" : [ "Database", "Endpoint.Address" ] } ]
+      }
+    }
+
+  },
+
+  "Outputs": {
+    "ElbSg": { "Value": {"Fn::GetAtt": ["ElbSg", "GroupId"]} },
+    "AppSg": { "Value": {"Fn::GetAtt": ["AppSg", "GroupId"]} },
+    "DbPwd": { "Value": {"Fn::GetAtt": ["GenerateDbPassword", "Password"]} }
+  }
+
+}

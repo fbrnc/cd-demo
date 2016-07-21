@@ -1,0 +1,201 @@
+{
+  "AWSTemplateFormatVersion": "2010-09-09",
+  "Description": "Deployment",
+  "Parameters": {
+
+    "DeployId": { "Type": "Number" },
+    "Build": { "Type": "Number" },
+    "KeyPair": { "Type": "AWS::EC2::KeyPair::KeyName" },
+    "PrivateSubnets": { "Type": "List<AWS::EC2::Subnet::Id>" },
+    "BuildPackage": { "Type": "String" },
+
+    /* Security groups */
+    "BastionSg": { "Type": "AWS::EC2::SecurityGroup::Id" },
+    "AppSg": { "Type": "AWS::EC2::SecurityGroup::Id" },
+
+    /* Instance Profiles */
+    "AppInstanceProfile": { "Type": "String" },
+
+    "EnvironmentName": {
+      "Description": "Environment Name (e.g. deploy, sbx, dev, tst, trn, qa, prd) (used for tagging)",
+      "Type": "String",
+      "AllowedPattern": "[a-z]{2,6}",
+      "MinLength": "2",
+      "MaxLength": "6",
+      "ConstraintDescription": "Malformed input parameter EnvironmentName must match pattern [a-z]{2,6}"
+    },
+
+    /* DB passwords */
+    "DbPwd": { "Type": "String", "MinLength": "8", "MaxLength": "41", "NoEcho": true },
+
+    /* Lambda function */
+    "GreenBlueSwitcher": { "Type": "String" },
+    "StackDeleter": { "Type": "String" },
+    "InstanceCounter": { "Type": "String" },
+
+    /* Behaviors */
+    "OldStacksBehavior": {
+      "Description": "What happens with old stacks after a successful deployment?",
+      "Type": "String",
+      "AllowedValues": ["keep", "delete"]
+    },
+
+    /* Load balancers */
+    "Elb": { "Type": "String" },
+
+    /* Domain names */
+    "InternalDomainName": { "Type": "String" }
+  },
+
+  "Conditions": {
+    "DeleteOldStacks": {"Fn::Equals": [{"Ref": "OldStacksBehavior"}, "delete"]}
+  },
+
+  "Mappings": {
+    /* Amazon Linux (HVM64) */
+    "AWSRegion2AMI": {
+      "us-west-2": {"AMI": "ami-d0f506b0"}
+    }
+  },
+
+  "Resources": {
+
+    "CountInstances": {
+      "Type": "Custom::InstanceCounter",
+      "DeletionPolicy": "Retain",
+      "Properties": {
+        "ServiceToken": {"Ref": "InstanceCounter"},
+        "AutoScalingGroupTags": [
+          {"Key": "Project", "Value": "demo"},
+          {"Key": "App", "Value": "hitcounter"},
+          {"Key": "Environment", "Value": {"Ref": "EnvironmentName"}}
+        ],
+        "Min": 1,
+        "Max": 10,
+        "Factor": 1
+      }
+    },
+
+    "AppAsg": {
+      "Type": "AWS::AutoScaling::AutoScalingGroup",
+      "Properties": {
+        "LaunchConfigurationName": {"Ref": "AppLc"},
+        "MinSize": 1,
+        "DesiredCapacity": {"Fn::GetAtt": ["CountInstances", "Count"]},
+        "MaxSize": 10,
+        "HealthCheckType": "ELB",
+        "Cooldown": "600",
+        "HealthCheckGracePeriod": "600",
+        "VPCZoneIdentifier": {"Ref": "PrivateSubnets"},
+        "Tags": [
+          {"Key": "Name", "PropagateAtLaunch": true, "Value": "app-{Ref:EnvironmentName}-{Ref:DeployId}"},
+          {"Key": "Project", "Value": "demo", "PropagateAtLaunch": true},
+          {"Key": "Environment", "Value": {"Ref": "EnvironmentName"}, "PropagateAtLaunch": true},
+          {"Key": "App", "Value": "hitcounter", "PropagateAtLaunch": true},
+          {"Key": "Build", "Value": {"Ref": "Build"}, "PropagateAtLaunch": true},
+          {"Key": "inspector", "Value": "Type:Bastion", "PropagateAtLaunch": true}
+        ]
+      }
+    },
+
+    "AppLc": {
+      "Type": "AWS::AutoScaling::LaunchConfiguration",
+      "Properties": {
+        "AssociatePublicIpAddress": false,
+        "ImageId": {"Fn::FindInMap" : [ "AWSRegion2AMI", {"Ref":"AWS::Region"}, "AMI"]},
+        "InstanceType": "t2.nano",
+        "IamInstanceProfile": {"Ref": "AppInstanceProfile"},
+        "SecurityGroups": [{"Ref": "AppSg"}, {"Ref": "BastionSg"}],
+        "KeyName": {"Ref": "KeyPair"},
+        "UserData": {"Fn::Base64": {"Fn::FileContent": "userdata.sh"}}
+      }
+    },
+
+    "ScaleUpPolicy" : {
+      "Type" : "AWS::AutoScaling::ScalingPolicy",
+      "Properties" : {
+        "AdjustmentType" : "ChangeInCapacity",
+        "AutoScalingGroupName" : { "Ref" : "AppAsg" },
+        "Cooldown" : "60",
+        "ScalingAdjustment" : "1"
+      }
+    },
+    "ScaleDownPolicy" : {
+      "DependsOn": "GreenBlueSwitch",
+      "Type" : "AWS::AutoScaling::ScalingPolicy",
+      "Properties" : {
+        "AdjustmentType" : "ChangeInCapacity",
+        "AutoScalingGroupName" : { "Ref" : "AppAsg" },
+        "Cooldown" : "60",
+        "ScalingAdjustment" : "-1"
+      }
+    },
+    "CPUAlarmHigh": {
+      "Type": "AWS::CloudWatch::Alarm",
+      "Properties": {
+        "AlarmDescription": "Scale-up if CPU > 60% for 2 minutes",
+        "MetricName": "CPUUtilization",
+        "Namespace": "AWS/EC2",
+        "Statistic": "Average",
+        "Period": "60",
+        "EvaluationPeriods": "2",
+        "Threshold": "60",
+        "AlarmActions": [{ "Ref": "ScaleUpPolicy" }],
+        "Dimensions": [{ "Name": "AutoScalingGroupName", "Value": { "Ref": "AppAsg" } }],
+        "ComparisonOperator": "GreaterThanThreshold"
+      }
+    },
+    "CPUAlarmLow": {
+      "Type": "AWS::CloudWatch::Alarm",
+      "Properties": {
+        "AlarmDescription": "Scale-down if CPU < 20% for 20 minutes",
+        "MetricName": "CPUUtilization",
+        "Namespace": "AWS/EC2",
+        "Statistic": "Average",
+        "Period": "120",
+        "EvaluationPeriods": "10",
+        "Threshold": "20",
+        "AlarmActions": [{ "Ref": "ScaleDownPolicy" }],
+        "Dimensions": [{ "Name": "AutoScalingGroupName", "Value": { "Ref": "AppAsg" } }],
+        "ComparisonOperator": "LessThanThreshold"
+      }
+    },
+
+    "GreenBlueSwitch": {
+      "DependsOn": "AppAsg",
+      "Type": "Custom::GreenBlueSwitcher",
+      "DeletionPolicy": "Retain",
+      "Properties": {
+        "ServiceToken": {"Ref": "GreenBlueSwitcher"},
+        "LoadBalancerName": { "Ref": "Elb" },
+        "AutoScalingGroupName": { "Ref": "AppAsg" },
+        "Comment": "Updated via CloudFormation/Lambda"
+      }
+    },
+
+    "DeleteStacks": {
+      "Condition": "DeleteOldStacks",
+      "DependsOn": "GreenBlueSwitch",
+      "Type": "Custom::StackDeleter",
+      "DeletionPolicy": "Retain",
+      "Properties": {
+        "ServiceToken": {"Ref": "StackDeleter"},
+        "TagFilter": {
+          "Project": "demo",
+          "Environment": {"Ref": "EnvironmentName"},
+          "App": "hitcounter"
+        },
+        "ExceptStackName": {"Ref": "AWS::StackName"}
+      }
+    }
+
+  },
+
+  "Outputs": {
+    "DeleteStacks": {
+      "Description": "Deleted Stacks",
+      "Value": {"Fn::GetAtt": ["DeleteStacks", "DeletedStackList"]}
+    }
+  }
+
+}

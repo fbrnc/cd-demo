@@ -1,0 +1,45 @@
+{
+  "AWSTemplateFormatVersion": "2010-09-09",
+  "Description": "Deploy Policy",
+
+  "Resources": {
+
+    "DeployPolicy": {
+      "Type": "AWS::IAM::ManagedPolicy",
+      "Properties": {
+        "Description": "All actions required to deploy a new build via CloudFormation",
+        "PolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Action": [ "cloudformation:createStack" ],
+              "Resource": "arn:aws:cloudformation:{Ref:AWS::Region}:{Ref:AWS::AccountId}:stack/env-*-deploy*"
+            },
+            {
+              "Effect": "Allow",
+              "Action": [
+                "ec2:Describe*",
+                "iam:PassRole",
+                "lambda:InvokeFunction",
+                "autoscaling:Describe*",
+                "autoscaling:CreateLaunchConfiguration",
+                "autoscaling:CreateAutoScalingGroup",
+                "autoscaling:UpdateAutoScalingGroup",
+                "autoscaling:PutScalingPolicy",
+                "cloudwatch:PutMetricAlarm",
+                "cloudformation:Describe*",
+                "cloudformation:ListStacks",
+                "logs:Describe*",
+                "logs:GetLogEvents",
+                "ecr:*"
+              ],
+              "Resource": "*"
+            }
+          ]
+        }
+      }
+    }
+
+  }
+}

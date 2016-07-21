@@ -1,0 +1,23 @@
+{
+  "AWSTemplateFormatVersion": "2010-09-09",
+
+  "Resources": {
+    "NanoRepository": {
+      "Type": "AWS::ECR::Repository",
+      "Properties": {
+        "RepositoryName" : "nano",
+        "RepositoryPolicyText" : {
+          "Version": "2008-10-17",
+          "Statement": [
+            {
+              "Sid": "Everything",
+              "Effect": "Allow",
+              "Principal": {"AWS": {"Ref": "AWS::AccountId"}},
+              "Action": [ "ecr:*" ]
+            }
+          ]
+        }
+      }
+    }
+  }
+}

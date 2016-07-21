@@ -1,0 +1,49 @@
+{
+  "AWSTemplateFormatVersion": "2010-09-09",
+  "Description": "Jenkins Profile",
+  "Parameters": {
+    "JenkinsBackupWritePolicy": {
+      "Description": "Backup bucket write (and read) policy",
+      "Type": "String"
+    },
+    "JenkinsBuildBucketWritePolicy": {
+      "Description": "Build bucket write (and read) policy",
+      "Type": "String"
+    }
+  },
+  "Resources": {
+    "JenkinsRole": {
+      "Type": "AWS::IAM::Role",
+      "Properties": {
+        "AssumeRolePolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Principal": {"Service": ["ec2.amazonaws.com"]},
+              "Action": ["sts:AssumeRole"]
+            }
+          ]
+        },
+        "ManagedPolicyArns": [
+          { "Ref": "JenkinsBackupWritePolicy"},
+          { "Ref": "JenkinsBuildBucketWritePolicy" },
+          { "Ref": "DeployPolicy" } /* @see: iam_policy_deploy.template */
+        ]
+      }
+    },
+    "JenkinsInstanceProfile": {
+      "Type": "AWS::IAM::InstanceProfile",
+      "Properties": {
+        "Path": "/ec2/jenkins/",
+        "Roles": [{"Ref": "JenkinsRole"}]
+      }
+    }
+  },
+  "Outputs": {
+    "JenkinsInstanceProfile": {
+      "Description": "Jenkins Instance Profile",
+      "Value": {"Fn::GetAtt": ["JenkinsInstanceProfile", "Arn"]}
+    }
+  }
+}

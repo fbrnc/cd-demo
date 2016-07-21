@@ -1,0 +1,19 @@
+blueprints:
+
+  - stackname: 'cfn-lambdahelper'
+    description: 'AWS Lambda function for custom CloudFormation resources'
+    template:
+      - '../cfn-lambdahelper/stack-deleter/function.template'
+      - '../cfn-lambdahelper/count-asg-instances/function.template'
+      - '../cfn-lambdahelper/password-generator/function.template'
+      - '../cfn-lambdahelper/greenblue-switcher/function.template'
+    Capabilities: 'CAPABILITY_IAM'
+    vars:
+      GreenBlueBucket: '{parameter:s3-artifacts:BucketName}'
+      GreenBlueKey: 'lambda/green_blue_{tstamp}.zip'
+    parameters:
+      S3Bucket: '{var:GreenBlueBucket}'
+      S3Key: '{var:GreenBlueKey}'
+    before:
+    - 'cd ../cfn-lambdahelper/greenblue-switcher/function && bash ../scripts/zip-and-upload-to-s3.sh s3://{var:GreenBlueBucket}/{var:GreenBlueKey}'
+

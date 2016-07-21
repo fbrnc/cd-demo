@@ -1,0 +1,13 @@
+blueprints:
+
+  - stackname: 'iam'
+    template:
+      - 'iam_role_jenkins.template'
+      - 'iam_profile_app.template'
+      - 'iam_policy_deploy.template'
+    description: 'IAM policies, users and roles, Security Groups'
+    Capabilities: 'CAPABILITY_IAM'
+    parameters:
+      JenkinsBackupWritePolicy: '{output:s3-jenkinsbackup:WritePolicy}'
+      JenkinsBuildBucketWritePolicy: '{output:s3-artifacts:WritePolicy}'
+      ArtifactsReadPolicy: '{output:s3-artifacts:ReadPolicy}'

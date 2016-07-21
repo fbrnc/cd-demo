@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <script src="https://code.jquery.com/jquery-2.2.4.min.js"></script>
+    <script>
+        var apiUrl = 'http://${APIURL}/';
+        jQuery(function() {
+            $.ajax(apiUrl, {
+                method: "PUT",
+                success: function(counter) {
+                    $('#you').text(counter);
+                }
+            });
+            $('#reset').click(function() {
+                $.ajax(apiUrl, {
+                    method: "DELETE",
+                    success: function(counter) {
+                        $('#current').text("Current counter: 0");
+                    }
+                });
+            });
+            window.setInterval(function(){
+                $.ajax(apiUrl, {
+                    method: "GET",
+                    success: function(counter) {
+                        $('#current').text("Current counter: " + counter);
+                    }
+                });
+            }, 1000);
+        });
+    </script>
+</head>
+<body>
+    <h1>You are visitor #<span id="you"></span></h1>
+    <h2 id="current"></h2>
+    <button id="reset" type="button">Reset</button>
+</body>
+</html>

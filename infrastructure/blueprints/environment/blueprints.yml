@@ -1,0 +1,45 @@
+blueprints:
+
+  - stackname: 'env-{env:Environment}-setup'
+    template: 'setup.template'
+    Capabilities: 'CAPABILITY_IAM'
+    parameters:
+      EnvironmentName: '{env:Environment}'
+      Vpc: '{output:vpc:VPC}'
+      PublicSubnets: '{output:vpc-subnets:FirstPublicSubnet},{output:vpc-subnets:SecondPublicSubnet},{output:vpc-subnets:ThirdPublicSubnet}'
+      PrivateSubnets: '{output:vpc-subnets:FirstPrivateSubnet},{output:vpc-subnets:SecondPrivateSubnet},{output:vpc-subnets:ThirdPrivateSubnet}'
+      DomainName: '{var:HostedZoneName}'
+      HostedZoneId: '{var:HostedZoneId}'
+      InternalDomainName: '{parameter:vpc:InternalHostedZoneName}'
+      InternalHostedZoneId: '{resource:vpc:InternalHostedZone}'
+      PasswordGeneratorArn: '{output:cfn-lambdahelper:PasswordGeneratorArn}'
+      BastionSg: '{resource:vpc-bastion:BastionSg}'
+
+
+
+  - stackname: 'env-{env:Environment}-deploy{env:DEPLOY_ID}'
+    template: 'deployment.template'
+    stackPolicy: 'policies/deployment.json'
+    parameters:
+      Build: '{env:BUILD_NUMBER}'
+      DeployId: '{env:DEPLOY_ID}'
+      BuildPackage: 's3://{output:s3-artifacts:BucketName}/hitcounter/{env:BUILD_NUMBER}/hitcounter.phar'
+      KeyPair: '{var:KeyName}'
+      AppInstanceProfile: '{output:iam:AppInstanceProfile}'
+      EnvironmentName: '{env:Environment}'
+      InternalDomainName: '{parameter:vpc:InternalHostedZoneName}'
+      InstanceCounter: '{output:cfn-lambdahelper:CountAsgInstancesArn}'
+      GreenBlueSwitcher: '{output:cfn-lambdahelper:GreenBlueSwitcherArn}'
+      StackDeleter: '{output:cfn-lambdahelper:StackDeleterArn}'
+      BastionSg: '{resource:vpc-bastion:BastionSg}'
+      OldStacksBehavior: '{env:DELETE_OLD_STACKS:delete}'
+      PrivateSubnets: '{output:vpc-subnets:FirstPrivateSubnet},{output:vpc-subnets:SecondPrivateSubnet},{output:vpc-subnets:ThirdPrivateSubnet}'
+      DbPwd: '{output:env-{env:Environment}-setup:DbPwd}'
+      Elb: '{resource:env-{env:Environment}-setup:Elb}'
+      AppSg: '{resource:env-{env:Environment}-setup:AppSg}'
+    tags:
+      Build: '{env:BUILD_NUMBER}'
+      # following tags are also used by the stack-deleter
+      Project: 'demo'
+      Environment: '{env:Environment}'
+      App: 'hitcounter'

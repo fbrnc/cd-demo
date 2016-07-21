@@ -1,0 +1,16 @@
+blueprints:
+
+  - stackname: 'env-{env:Environment}-website'
+    description: 'Static website hosted in S3'
+    template: 'website.template'
+    parameters:
+      Domain: '{var:HostedZoneName}'
+      Subdomain: 'www-{env:Environment}'
+    after: |
+      if [[ $STATUS =~ ^(UPDATE|CREATE)_COMPLETE|NO_UPDATES_PERFORMED$ ]] ; then
+        aws s3 sync --delete --exclude=index.html content/ s3://www-{env:Environment}.aoeplay.net/
+        export APIURL='api-{env:Environment}.{var:HostedZoneName}'
+        envsubst < content/index.html | aws s3 cp --content-type="text/html" - s3://www-{env:Environment}.{var:HostedZoneName}/index.html
+      else
+        echo "Skipping Upload"
+      fi

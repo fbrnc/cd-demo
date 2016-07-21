@@ -1,0 +1,7 @@
+vars:
+  KeyName: 'FabrizioAoePlayOregon'
+  # aoeplay.net
+  HostedZoneId: 'ZJUVTNX0H3A0H'
+  HostedZoneName: 'aoeplay.net'
+  # *.aoeplay.net
+  AcmCertificateArn: 'arn:aws:acm:us-west-2:443171610680:certificate/f4261517-2488-46f4-a11c-a8c75d800265'

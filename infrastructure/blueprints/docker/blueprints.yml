@@ -1,0 +1,4 @@
+blueprints:
+
+  - stackname: 'docker'
+    template: 'docker.template'

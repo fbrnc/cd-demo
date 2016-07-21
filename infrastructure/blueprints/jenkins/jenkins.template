@@ -1,0 +1,154 @@
+{
+  "AWSTemplateFormatVersion": "2010-09-09",
+  "Description": "Jenkins",
+  "Parameters": {
+    "VPC": {
+      "Description": "VPC associated with the provided subnets",
+      "Type": "AWS::EC2::VPC::Id"
+    },
+    "PublicSubnets": {
+      "Description": "List of VPC subnet IDs for the cluster",
+      "Type": "List<AWS::EC2::Subnet::Id>"
+    },
+    "PrivateSubnets": {
+      "Description": "List of VPC subnet IDs for the cluster",
+      "Type": "List<AWS::EC2::Subnet::Id>"
+    },
+    "KeyName": {
+      "Description": "Name of an existing EC2 keypair to enable SSH access to the instances",
+      "Type": "AWS::EC2::KeyPair::KeyName"
+    },
+    "BastionSg": {
+      "Type": "AWS::EC2::SecurityGroup::Id"
+    },
+    "Subdomain": {
+      "Type": "String",
+      "Description": "Subdomain (Hosted Zone Record Set pointing to ELB)",
+      "Default": "jenkins"
+    },
+    "HostedZoneName": {
+      "Type": "String",
+      "Description": "Hosted zone name"
+    },
+    "Backup": {
+      "Description": "S3 URL to a backup directory or empty to not restore",
+      "Type": "String"
+    },
+    "JenkinsInstanceProfile": {
+      "Description": "Jenkins Instance Profile",
+      "Type": "String"
+    },
+    "ServerCertificateArn": {
+      "Description": "SSL Server Certificate ID",
+      "Type": "String"
+    }
+  },
+
+  "Mappings": {
+    /* Amazon Linux (HVM64) */
+    "AWSRegion2AMI": {
+      "us-west-2": {"AMI": "ami-d0f506b0"}
+    }
+  },
+
+  "Resources": {
+
+    "AutoScalingGroup": {
+      "CreationPolicy": {
+        "ResourceSignal": {
+          "Count": "1",
+          "Timeout": "PT5M"
+        }
+      },
+      "UpdatePolicy" : {
+        "AutoScalingRollingUpdate" : {
+          "MinInstancesInService" : "1",
+          "MaxBatchSize" : "1",
+          "PauseTime" : "PT5M",
+          "WaitOnResourceSignals" : "true"
+        }
+      },
+      "Type": "AWS::AutoScaling::AutoScalingGroup",
+      "Properties": {
+        "AvailabilityZones": {"Fn::GetAZs": ""},
+        "LaunchConfigurationName": {"Ref": "LaunchConfiguration"},
+        "MinSize": "1",
+        "MaxSize": "2",
+        "DesiredCapacity": "1",
+        "HealthCheckType": "ELB",
+        "HealthCheckGracePeriod": "900",
+        "LoadBalancerNames": [{"Ref": "LoadBalancer"}],
+        "VPCZoneIdentifier": {"Ref": "PrivateSubnets"},
+        "Tags": [
+          {"Key": "Name", "Value": "Jenkins", "PropagateAtLaunch": true},
+          {"Key": "inspector:user", "Value": "ec2-user", "PropagateAtLaunch": true},
+          {"Key": "inspector:jump", "Value": "Type:Bastion,Environment:all", "PropagateAtLaunch": true}
+        ]
+      }
+    },
+
+    "LaunchConfiguration": {
+      "Type": "AWS::AutoScaling::LaunchConfiguration",
+      "Properties": {
+        "IamInstanceProfile": {"Ref": "JenkinsInstanceProfile"},
+        "KeyName": {"Ref": "KeyName"},
+        "ImageId": {"Fn::FindInMap" : [ "AWSRegion2AMI", {"Ref":"AWS::Region"}, "AMI"]},
+        "SecurityGroups": [{"Ref": "InstanceSg"}],
+        "AssociatePublicIpAddress": "false",
+        "InstanceType": "t2.small",
+        "UserData": { "Fn::Base64": { "Fn::FileContent": "userdata.sh" } }
+      }
+    },
+
+    "LoadBalancerSg": {
+      "Type": "AWS::EC2::SecurityGroup",
+      "Properties": {
+        "GroupDescription": "Jenkins LB",
+        "VpcId": {"Ref": "VPC"},
+        "SecurityGroupIngress": [
+          {"IpProtocol": "tcp", "FromPort": "443", "ToPort": "443", "CidrIp": "0.0.0.0/0"}
+        ]
+      }
+    },
+
+    "InstanceSg": {
+      "Type": "AWS::EC2::SecurityGroup",
+      "Properties": {
+        "GroupDescription": "Instance Server Security Group",
+        "VpcId": {"Ref": "VPC"},
+        "SecurityGroupIngress": [
+          {"IpProtocol": "tcp", "FromPort": "8080", "ToPort": "8080", "SourceSecurityGroupId": {"Ref": "LoadBalancerSg"}},
+          {"IpProtocol": "tcp", "FromPort": "22", "ToPort": "22", "SourceSecurityGroupId": {"Ref": "BastionSg"}}
+        ]
+      }
+    },
+
+    "LoadBalancer": {
+      "Type": "AWS::ElasticLoadBalancing::LoadBalancer",
+      "Properties": {
+        "SecurityGroups": [{"Ref": "LoadBalancerSg"}],
+        "Subnets": {"Ref": "PublicSubnets"},
+        "Listeners": [{ "LoadBalancerPort": "443", "InstancePort": "8080", "Protocol": "HTTPS", "SSLCertificateId": { "Ref": "ServerCertificateArn"}}],
+        "HealthCheck": {
+          "Target": "TCP:8080", /* HTTP:8080/login */
+          "HealthyThreshold": "3",
+          "UnhealthyThreshold": "5",
+          "Interval": "30",
+          "Timeout": "10"
+        }
+      }
+    },
+
+    "Dns": {
+      "Type": "AWS::Route53::RecordSet",
+      "Properties": {
+        "HostedZoneName": "{Ref:HostedZoneName}.",
+        "Name" : "{Ref:Subdomain}.{Ref:HostedZoneName}.",
+        "TTL": 60,
+        "Type": "CNAME",
+        "ResourceRecords" : [ { "Fn::GetAtt" : [ "LoadBalancer", "DNSName" ] } ]
+      }
+    }
+
+  }
+}

@@ -1,0 +1,11 @@
+{
+  "main": "index.php",
+  "output": "../artifacts/hitcounter.phar",
+  "chmod": "0775",
+  "compression": "GZ",
+  "extract": false,
+  "files": [ "index.php", "Counter.php" ],
+  "git-version": "package_version",
+  "stub": true,
+  "shebang": ""
+}

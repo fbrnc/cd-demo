@@ -1,0 +1,7 @@
+{
+    "require": {
+        "aoepeople/stackformation": "^4.0",
+        "aoepeople/cfn-vpc": "^1.0",
+        "aoepeople/cfn-lambdahelper": "^1.1"
+    }
+}

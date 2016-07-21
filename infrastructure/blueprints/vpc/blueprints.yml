@@ -1,0 +1,43 @@
+blueprints:
+
+  - stackname: 'vpc'
+    template: '../cfn-vpc/vpc.template'
+    parameters:
+      VpcCidrBlock: '10.101.0.0/16'
+      VpcName: 'vpc-int'
+      InternalHostedZoneName: 'internal.com'
+
+
+
+  - stackname: 'vpc-subnets'
+    description: 'Subnets'
+    template:
+      # The following keys (e.g. First, Second, Third) will be used a prefixes for all resources/parameters/... in the referenced template
+      First: '../cfn-vpc/az.template'
+      Second: '../cfn-vpc/az.template'
+      Third: '../cfn-vpc/az.template'
+    parameters:
+      # '*...' is will be expanded to every prefix used in the template section -> FirstVPC, SecondVPC, ThirdVPC
+      '*VPC': '{output:vpc:VPC}'
+      '*InternetGateway': '{output:vpc:InternetGateway}'
+      FirstPublicSubnetCidrBlock:   '10.101.1.0/24'
+      SecondPublicSubnetCidrBlock:  '10.101.2.0/24'
+      ThirdPublicSubnetCidrBlock:   '10.101.3.0/24'
+      FirstPrivateSubnetCidrBlock:  '10.101.11.0/24'
+      SecondPrivateSubnetCidrBlock: '10.101.12.0/24'
+      ThirdPrivateSubnetCidrBlock:  '10.101.13.0/24'
+      FirstAZ: 'us-west-2a'
+      SecondAZ: 'us-west-2b'
+      ThirdAZ: 'us-west-2c'
+
+
+
+  - stackname: 'vpc-bastion'
+    template: '../cfn-vpc/bastion.template'
+    parameters:
+      PublicSubnets: '{output:vpc-subnets:FirstPublicSubnet},{output:vpc-subnets:SecondPublicSubnet},{output:vpc-subnets:ThirdPublicSubnet}'
+      KeyPair: '{var:KeyName}'
+      Vpc: '{output:vpc:VPC}'
+      EnvironmentName: 'all'
+      #SSHLocation: '{env:SSHLocation:0.0.0.0/0}'
+      SSHLocation: '0.0.0.0/0'
