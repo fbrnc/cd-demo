@@ -1,42 +1,52 @@
-#!/usr/bin/env bash
+node {
 
-CFN_SIGNAL_PARAMETERS='--stack {Ref:AWS::StackName} --resource AppAsg --region {Ref:AWS::Region}'
+    wrap([$class: 'AnsiColorBuildWrapper', 'colorMapName': 'XTerm']) {
 
-function error_exit {
-    echo ">>> ERROR_EXIT: $1. Signaling error to wait condition..."
-    /opt/aws/bin/cfn-signal --exit-code 1 --reason "$1" ${CFN_SIGNAL_PARAMETERS}
-    exit 1
+        stage "Checkout"
+        checkout scm
+        // delete old artifacts
+        sh "rm -rf artifacts ; mkdir artifacts"
+
+        dir('nano-app') {
+            stage "Static Code Analysis"
+            sh '../tests/static/phplint.sh . > /dev/null'
+
+            stage "Build"
+            sh '/usr/local/bin/box build'
+        }
+
+        stage 'Build/push Docker'
+        sh '$(aws ecr get-login --region us-west-2)'
+        sh "docker build -t 443171610680.dkr.ecr.us-west-2.amazonaws.com/nano:${env.BUILD_NUMBER} ."
+        sh "docker push 443171610680.dkr.ecr.us-west-2.amazonaws.com/nano:${env.BUILD_NUMBER}"
+
+        stage 'Unit Tests'
+        dir('tests/unit') {
+            sh "/usr/local/bin/phpunit --debug --colors --log-junit ../../artifacts/junit.xml"
+        }
+        step([$class: 'JUnitResultArchiver', testResults: 'artifacts/junit.xml'])
+
+        dir('infrastructure') {
+            sh '/usr/local/bin/composer --ansi --no-dev --no-progress --no-interaction install'
+        }
+
+        withEnv(["Environment=tst", "DEPLOY_ID=${env.BUILD_NUMBER}", "AWS_DEFAULT_REGION=us-west-2", "USE_INSTANCE_PROFILE=1"]) {
+            dir('infrastructure') {
+                stage name: "Deploy to ${env.Environment}", concurrency: 1
+                echo "Deploying to ${env.Environment}"
+                sh "vendor/bin/stackformation.php blueprint:deploy --ansi --deleteOnTerminate 'env-{env:Environment}-deploy{env:DEPLOY_ID}'"
+                sh "vendor/bin/stackformation.php stack:timeline 'env-${env.Environment}-deploy${env.DEPLOY_ID}' > ../artifacts/timeline_${env.Environment}.html"
+            }
+            publishHTML(target: [reportDir: 'artifacts', reportFiles: "timeline_${env.Environment}.html", reportName: "Deploy Timeline for ${env.Environment}"])
+
+            stage name: "Integration test ${env.Environment}", concurrency: 1
+            sh "bash -x tests/integration/integration_test.sh http://api-${env.Environment}.aoeplay.net/"
+
+            stage name: "Stress testing ${env.Environment}", concurrency: 1
+            sh "bash tests/stress/stress_test.sh http://api-${env.Environment}.aoeplay.net/"
+        }
+
+        echo "Done"
+    }
+
 }
-function done_exit {
-    rv=$?
-    if [ "$rv" == "0" ] ; then
-        echo ">>> Signaling success to CloudFormation"
-        /opt/aws/bin/cfn-signal --exit-code 0 ${CFN_SIGNAL_PARAMETERS}
-    else
-        echo ">>> NOT sending success signal to CloudFormation (return value: ${rv})"
-        echo ">>> DONE_EXIT: Signaling error to wait condition..."
-        /opt/aws/bin/cfn-signal --exit-code 1 --reason "Trap" ${CFN_SIGNAL_PARAMETERS}
-    fi
-    exit $rv
-}
-trap "done_exit" EXIT
-
-yum update -y || error_exit "Failed updating packages"
-yum install -y docker || error_exit "Failed installing docker"
-service docker start || error_exit "Failed starting docker"
-
-export DB_DSN="mysql:host=db-{Ref:EnvironmentName}.{Ref:InternalDomainName};dbname=app_{Ref:EnvironmentName}"
-export DB_USER="app_{Ref:EnvironmentName}"
-export DB_PASSWD="{Ref:DbPwd}"
-export INSTANCE_ID=$(curl http://169.254.169.254/latest/meta-data/instance-id)
-
-# Login to ECR
-$(aws ecr get-login --region "{Ref:AWS::Region}")
-
-# Run container
-docker run -d -t -i -p 80:80 \
-    -e DB_DSN=$DB_DSN \
-    -e DB_USER=$DB_USER \
-    -e DB_PASSWD=$DB_PASSWD \
-    -e INSTANCE_ID=$INSTANCE_ID \
-    "{Ref:AWS::AccountId}.dkr.ecr.{Ref:AWS::Region}.amazonaws.com/nano:{Ref:Build}"
