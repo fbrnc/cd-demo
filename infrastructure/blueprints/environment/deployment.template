@@ -107,7 +107,7 @@
         "IamInstanceProfile": {"Ref": "AppInstanceProfile"},
         "SecurityGroups": [{"Ref": "AppSg"}, {"Ref": "BastionSg"}],
         "KeyName": {"Ref": "KeyPair"},
-        "UserData": {"Fn::Base64": {"Fn::FileContent": "userdata_docker.sh"}}
+        "UserData": {"Fn::Base64": {"Fn::FileContent": "userdata.sh"}}
       }
     },
 
