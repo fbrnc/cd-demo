@@ -37,4 +37,3 @@ class Counter {
         $this->db->prepare('INSERT INTO counter VALUES (0)')->execute();
     }
 
-}
